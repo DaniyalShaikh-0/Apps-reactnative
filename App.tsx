@@ -41,6 +41,7 @@ import FA5 from 'react-native-vector-icons/FontAwesome5';
 import MCI from 'react-native-vector-icons/MaterialCommunityIcons';
 import MyModal from './src/components/AddExpense';
 import {storage} from './src/Storage';
+import {format} from 'date-fns';
 
 function Section({children, title}: SectionProps): JSX.Element {
   const isDarkMode = useColorScheme() === 'dark';
@@ -67,6 +68,30 @@ function Section({children, title}: SectionProps): JSX.Element {
     </View>
   );
 }
+type GroupTypes = 'YEAR' | 'MONTH';
+const GroupMethods = {
+  YEAR: {
+    getCommonData: ({date}: {date: string}) => date.slice(0, 4),
+  },
+  MONTH: {
+    getCommonData: ({date}: {date: string}) => date.slice(0, 7),
+  },
+};
+const groupDateData = (data: Expense[], by: GroupTypes) => {
+  const groupByCallback = GroupMethods[by].getCommonData;
+  const initAcc: {[key: string]: Expense[]} = {};
+
+  return data.reduce((acc, item) => {
+    const groupValue = groupByCallback(item);
+
+    if (!acc[groupValue]) {
+      acc[groupValue] = [];
+    }
+
+    acc[groupValue].push(item);
+    return acc;
+  }, initAcc);
+};
 function getLastDateOfMonth(year: number, month: number) {
   // Ensure month is within the range 0-11
   month = Math.max(0, Math.min(11, month));
@@ -106,7 +131,7 @@ const Categories = createCategories({
     color: '#EC4A93',
   },
   Petrol: {
-    icon: <FA5 name="gas-pump" size={18} color={'white'} />,
+    icon: <FA5 name="gas-pump" size={16} color={'white'} />,
     title: 'Petrol',
     color: '#E76937',
   },
@@ -114,6 +139,11 @@ const Categories = createCategories({
     icon: <MCI name="french-fries" size={18} color={'white'} />,
     title: 'Snacks',
     color: '#F1B21F',
+  },
+  Dessert: {
+    icon: <MCI name="cupcake" size={18} color={'white'} />,
+    title: 'Dessert',
+    color: '#7D531C',
   },
   Shopping: {
     icon: <MCI name="cart-outline" size={18} color={'white'} />,
@@ -140,6 +170,17 @@ const Categories = createCategories({
     title: 'Car',
     color: '#1666C7',
   },
+  Entertainment: {
+    title: 'Entertainment',
+    icon: <IonIcon name="game-controller" size={18} color={'white'} />,
+    color: '#89B326',
+  },
+  Medical: {
+    title: 'Medical',
+    icon: <FA5 name="ambulance" size={14} color={'white'} />,
+    color: '#E71639',
+  },
+
   Others: {
     icon: <MCI name="information-variant" size={18} color={'white'} />,
     title: 'Others',
@@ -222,7 +263,15 @@ const getTotalExpense = (arr: Expense[]) => {
   );
 };
 // console.log(getTotalExpense(TryDat));
+function isCurrentMonth(dateString: string) {
+  const currentMonthYear = new Date().toISOString().slice(0, 7);
+  const inputMonthYear = dateString;
 
+  return currentMonthYear === inputMonthYear;
+}
+function sortDates(dateStrings: string[]) {
+  return dateStrings.sort((a, b) => a.localeCompare(b)).reverse();
+}
 const getUpdatedData = () => {
   let data = storage.getString('UserExpense');
   const ExpData: Expense[] = JSON.parse(data || '') || [];
@@ -230,19 +279,36 @@ const getUpdatedData = () => {
     ...val,
     category: Categories[val.category],
   }));
+  const DatabyMonth = groupDateData(TryDat, 'MONTH');
+  const monthList = Object.keys(DatabyMonth);
   const result: {[key: string]: Expense[]} = {};
+  let byMonthResult: {[key: string]: Expense[]} = {};
+  const ByMonthCompData: {[key: string]: {[key: string]: Expense[]}} = {};
+  monthList.forEach(month => {
+    const DateDat = DatabyMonth[month];
 
-  TryDat.forEach(item => {
-    const datetime = item.date;
-    if (!result[datetime]) {
-      result[datetime] = [];
-    }
-    result[datetime].push(item);
+    byMonthResult = {};
+    DateDat.forEach(item => {
+      const datetime = item.date;
+      if (!result[datetime]) {
+        result[datetime] = [];
+      }
+      result[datetime].push(item);
+
+      if (!byMonthResult[datetime]) {
+        byMonthResult[datetime] = [];
+      }
+      byMonthResult[datetime].push(item);
+    });
+    ByMonthCompData[month] = byMonthResult;
   });
-  const DATES = Object.keys(result);
-  // console.log('DATA UPDATED', JSON.stringify(ExpData, null, 3));
+  const MONTHS = Object.keys(DatabyMonth);
+  // console.log(
+  //   'DATA UPDATED',
+  //   JSON.stringify(groupDateData(ExpData.slice(63), 'MONTH')),
+  // );
 
-  return {DATES, result, ExpData};
+  return {MONTHS, ByMonthCompData, ExpData};
 };
 
 function getStandardTime(datetimeString: string) {
@@ -259,7 +325,7 @@ function getStandardTime(datetimeString: string) {
 function App(): JSX.Element {
   const [isAddExpense, setIsAddExpense] = useState<boolean>(false);
   const [toggleDataUpd, setToggleDataUpd] = useState<boolean>(false);
-  const {DATES, result, ExpData} = useMemo(
+  const {MONTHS, ByMonthCompData, ExpData} = useMemo(
     () => getUpdatedData(),
     [isAddExpense, toggleDataUpd],
   );
@@ -302,7 +368,10 @@ function App(): JSX.Element {
           }}>
           <Text style={{color: '#FFFFFF', fontSize: 14}}>You have Spent: </Text>
           <Text style={{fontWeight: '900', color: '#FFFFFF', fontSize: 24}}>
-            PKR {getTotalExpense(ExpData).toLocaleString()}
+            PKR{' '}
+            {getTotalExpense(
+              ExpData.filter(exp => isCurrentMonth(exp.date.slice(0, 7))),
+            ).toLocaleString()}
           </Text>
         </View>
       </LinearGradient>
@@ -310,148 +379,172 @@ function App(): JSX.Element {
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{paddingBottom: 80}}>
-          {DATES.reverse().map(dt => {
+          {MONTHS.reverse().map(mt => {
+            const result = ByMonthCompData[mt];
+            const DATES = Object.keys(result);
+            const dat = DATES?.[0];
             return (
-              <LinearGradient
-                colors={['#959595', '#5E5E5E']}
-                key={dt}
-                start={{x: 1, y: 0}}
-                end={{x: 0, y: 0}}
-                style={{
-                  backgroundColor: 'grey',
-                  marginVertical: 20,
-                  padding: 8,
-                  borderRadius: 8,
-                }}>
-                <Text style={{color: 'white', fontWeight: '500'}}>
-                  {new Date(dt).toDateString()}
-                </Text>
-                {result[dt].map((expenses, ind) => {
+              <View style={{}} key={mt}>
+                {!isCurrentMonth(mt) ? (
+                  <Text
+                    style={{color: 'black', fontSize: 14, fontWeight: '600'}}>
+                    You Spent a total of PKR{' '}
+                    {getTotalExpense(
+                      ExpData.filter(dt => dt.date.slice(0, 7) === mt),
+                    ).toLocaleString()}
+                    {' in'} the month of {format(new Date(dat), 'MMMM')}
+                  </Text>
+                ) : (
+                  <></>
+                )}
+                {sortDates(DATES).map(dt => {
                   return (
-                    <View
-                      key={`${expenses.description} ${ind}`}
+                    <LinearGradient
+                      colors={['#959595', '#5E5E5E']}
+                      key={dt}
+                      start={{x: 1, y: 0}}
+                      end={{x: 0, y: 0}}
                       style={{
-                        alignItems: 'center',
-                        justifyContent: 'flex-start',
-                        flexDirection: 'row',
-                        margin: 8,
+                        backgroundColor: 'grey',
+                        marginVertical: 20,
+                        padding: 8,
+                        borderRadius: 8,
                       }}>
-                      <Text
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 'bold',
-                          width: '12%',
-                          textAlign: 'center',
-                          color: 'white',
-                        }}>
-                        {getStandardTime(expenses.datetime)}
+                      <Text style={{color: 'white', fontWeight: '500'}}>
+                        {new Date(dt).toDateString()}
                       </Text>
-                      <TouchableOpacity
-                        activeOpacity={0.9}
-                        onLongPress={() => {
-                          Alert.alert(
-                            `Delete this Expense?`,
-                            `Are you sure you want to delete "${expenses?.description.slice(
-                              0,
-                              20,
-                            )}${
-                              expenses?.description?.length > 20 ? '...' : ''
-                            }"`,
-                            [
-                              {
-                                text: 'Cancel',
-                              },
-                              {
-                                text: 'Yes, Delete',
-                                onPress: v => {
-                                  //  const selectedInd =
-                                  // console.log('EXPPPP');
-                                  // console.log(
-                                  //   JSON.stringify(expenses, null, 3),
-                                  // );
-                                  // console.log('EXPPPP');
+                      {result[dt].map((expenses, ind) => {
+                        return (
+                          <View
+                            key={`${expenses.description} ${ind}`}
+                            style={{
+                              alignItems: 'center',
+                              justifyContent: 'flex-start',
+                              flexDirection: 'row',
+                              margin: 8,
+                            }}>
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 'bold',
+                                width: '12%',
+                                textAlign: 'center',
+                                color: 'white',
+                              }}>
+                              {getStandardTime(expenses.datetime)}
+                            </Text>
+                            <TouchableOpacity
+                              activeOpacity={0.9}
+                              onLongPress={() => {
+                                Alert.alert(
+                                  `Delete this Expense?`,
+                                  `Are you sure you want to delete "${expenses?.description.slice(
+                                    0,
+                                    20,
+                                  )}${
+                                    expenses?.description?.length > 20
+                                      ? '...'
+                                      : ''
+                                  }"`,
+                                  [
+                                    {
+                                      text: 'Cancel',
+                                    },
+                                    {
+                                      text: 'Yes, Delete',
+                                      onPress: v => {
+                                        //  const selectedInd =
+                                        // console.log('EXPPPP');
+                                        // console.log(
+                                        //   JSON.stringify(expenses, null, 3),
+                                        // );
+                                        // console.log('EXPPPP');
 
-                                  // console.log('AFTER FITER');
+                                        // console.log('AFTER FITER');
 
-                                  const updateData = ExpData.filter(
-                                    ex =>
-                                      !(
-                                        ex.description ===
-                                          expenses.description &&
-                                        ex.datetime === expenses.datetime
-                                      ),
-                                  );
-                                  // console.log(
-                                  //   JSON.stringify(updateData, null, 3),
-                                  // );
-                                  // console.log('AFTER FITER');
-                                  storage.set(
-                                    'UserExpense',
-                                    JSON.stringify(updateData),
-                                  );
-                                  setToggleDataUpd(tg => !tg);
-                                  // console.log(expenses);
-                                  // console.log(result);
-                                },
-                              },
-                            ],
-                          );
-                        }}
-                        style={{
-                          backgroundColor: (expenses.category as category)
-                            .color,
-                          height: 35,
-                          width: 35,
-                          borderRadius: 1000,
-                          padding: 8,
-                          marginLeft: 4,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}>
-                        {(expenses.category as category).icon}
-                      </TouchableOpacity>
-                      <View
-                        style={{
-                          marginHorizontal: 16,
-                          // backgroundColor: 'blue',
-                          // flexWrap: 'wrap',
-                          // flexDirection: 'row',
-                          // width: 'auto',
-                          flex: 1.5,
-                        }}>
-                        <Text
-                          style={{
-                            fontSize: 14,
-                            fontWeight: 'bold',
-                            color: 'white',
-                            width: 'auto',
-                          }}>
-                          {expenses.description}
-                        </Text>
-                        <Text style={{color: 'white', fontSize: 12}}>
-                          {expenses.category.title}
-                        </Text>
-                      </View>
-                      <Text
-                        style={{
-                          fontSize: 18,
-                          fontWeight: 'bold',
-                          marginLeft: 'auto',
-                          color: 'white',
-                          // backgroundColor: 'red',
-                          // flex: 1,
-                          textAlign: 'right',
-                          // width: ,
-                        }}>
-                        PKR{' '}
-                        {parseFloat(
-                          expenses.amount.toString(),
-                        ).toLocaleString()}
-                      </Text>
-                    </View>
+                                        const updateData = ExpData.filter(
+                                          ex =>
+                                            !(
+                                              ex.description ===
+                                                expenses.description &&
+                                              ex.datetime === expenses.datetime
+                                            ),
+                                        );
+                                        // console.log(
+                                        //   JSON.stringify(updateData, null, 3),
+                                        // );
+                                        // console.log('AFTER FITER');
+                                        storage.set(
+                                          'UserExpense',
+                                          JSON.stringify(updateData),
+                                        );
+                                        setToggleDataUpd(tg => !tg);
+                                        // console.log(expenses);
+                                        // console.log(result);
+                                      },
+                                    },
+                                  ],
+                                );
+                              }}
+                              style={{
+                                backgroundColor: (expenses.category as category)
+                                  .color,
+                                height: 35,
+                                width: 35,
+                                // aspectRatio: 1,
+                                borderRadius: 1000,
+                                padding: 8,
+                                marginLeft: 4,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}>
+                              {(expenses.category as category).icon}
+                            </TouchableOpacity>
+                            <View
+                              style={{
+                                marginHorizontal: 16,
+                                // backgroundColor: 'blue',
+                                // flexWrap: 'wrap',
+                                // flexDirection: 'row',
+                                // width: 'auto',
+                                flex: 1.5,
+                              }}>
+                              <Text
+                                style={{
+                                  fontSize: 14,
+                                  fontWeight: 'bold',
+                                  color: 'white',
+                                  width: 'auto',
+                                }}>
+                                {expenses.description}
+                              </Text>
+                              <Text style={{color: 'white', fontSize: 12}}>
+                                {(expenses.category as category).title}
+                              </Text>
+                            </View>
+                            <Text
+                              style={{
+                                fontSize: 18,
+                                fontWeight: 'bold',
+                                marginLeft: 'auto',
+                                color: 'white',
+                                // backgroundColor: 'red',
+                                // flex: 1,
+                                textAlign: 'right',
+                                // width: ,
+                              }}>
+                              PKR{' '}
+                              {parseFloat(
+                                expenses.amount.toString(),
+                              ).toLocaleString()}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </LinearGradient>
                   );
                 })}
-              </LinearGradient>
+              </View>
             );
           })}
         </ScrollView>
@@ -494,18 +587,19 @@ function App(): JSX.Element {
         onClose={() => {
           setIsAddExpense(false);
         }}
-        handleSave={(inp1, inp2, category) => {
-          if (inp1 && inp2 && category) {
+        handleSave={(inp1, inp2, category, dateSelected) => {
+          if (inp1 && inp2 && category && dateSelected) {
+            const selectedDateMs = new Date(dateSelected).getTime();
             const tzoffset = new Date().getTimezoneOffset() * 60000; //offset in milliseconds
-            const dt = new Date(Date.now() - tzoffset);
+            const dt = new Date(selectedDateMs - tzoffset);
             const OBJ: Expense = {
               amount: inp1,
               category: category,
-              datetime: dt.toISOString(),
+              datetime: toTzIsoString(dt),
               date: dt.toISOString().slice(0, 10),
               description: inp2,
             };
-            // console.log();
+            console.log(OBJ);
             const val = storage.getString('UserExpense');
             let ExpenseArr: Expense[];
             if (val) {
@@ -555,7 +649,9 @@ const styles = StyleSheet.create({
   },
   linearGradient: {flex: 1, paddingLeft: 15, paddingRight: 15, borderRadius: 5},
 });
-
+const toTzIsoString = (date: Date) => {
+  return date.toISOString().replace('Z', '');
+};
 export default App;
 /*
  <View
